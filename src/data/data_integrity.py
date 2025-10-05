@@ -8,10 +8,21 @@ class DataIntegrityChecker:
     for multi-currency OHLCV data.
     """
 
+    DAILY_NUMBER_OF_BARS = {
+        "Monday": 1440,
+        "Tuesday": 1440,
+        "Wednesday": 1440,
+        "Thursday": 1440,
+        "Friday": 1320,  # Friday only until 22:00 UTC
+        "Saturday": 0,
+        "Sunday": 120,  # Sunday only after 22:00 UTC
+    }
+
     def __init__(self, df: pd.DataFrame = None):
         if df is None:
             df = pd.read_parquet("data/raw/currencies_market_data.parquet")
         self.df: pd.DataFrame = df.copy()
+        self.initial_n_rows = self.df.shape[0]
         self.expected_cols = [
             "open_time",
             "open",
@@ -45,7 +56,9 @@ class DataIntegrityChecker:
         """Remove duplicate timestamp-currency entries."""
         dup_count = self.df.duplicated(subset=["open_time", "currency"]).sum()
         if dup_count > 0:
-            print(f"⚠️ Found {dup_count} duplicate entries. Dropping them.")
+            print(
+                f"⚠️ Found {dup_count} duplicate entries ({dup_count / self.df.shape[0]:.2%} of all data). Dropping them."
+            )
             self.df.drop_duplicates(subset=["open_time", "currency"], inplace=True)
         else:
             print("✅ No duplicate entries detected.")
@@ -56,12 +69,26 @@ class DataIntegrityChecker:
         for curr in self.df["currency"].unique():
             df_curr = self.df[self.df["currency"] == curr]
             start, end = df_curr["open_time"].min(), df_curr["open_time"].max()
-            print(f"   - {curr}: {start} to {end}")
+            print(f"   - {curr}: {start} → {end}")
         overall_start, overall_end = (
             self.df["open_time"].min(),
             self.df["open_time"].max(),
         )
         print(f"\n🌐 Overall date range: {overall_start} to {overall_end}")
+
+    def clip_last_date(self):
+        """Clip data to exclude entries after a 2025-09-22."""
+        cutoff_day = "2025-09-22 00:00:00"
+        cutoff = pd.to_datetime(cutoff_day)
+        initial_count = self.df.shape[0]
+        self.df = self.df[self.df["open_time"] < cutoff].copy()
+        dropped = initial_count - self.df.shape[0]
+        if dropped > 0:
+            print(
+                f"⚠️ Dropped {dropped} entries after {cutoff_day} ({dropped / self.df.shape[0]:.2%} of all data) to align dataset (incomplete day)."
+            )
+        else:
+            print(f"✅ No entries found after {cutoff_day}.")
 
     def check_missing_values(self):
         """Check for NaN values in the dataset."""
@@ -113,57 +140,72 @@ class DataIntegrityChecker:
             print("✅ No weekend boundary data detected.")
 
     def check_time_continuity(self):
-        """Check for missing 1-min intervals and forward-fill gaps within valid trading hours."""
+        """
+        Compute missing 1-min bars per currency and forward-fill gaps
+        within valid trading hours, taking into account per-day expected bars.
+        """
         print("🕒 Checking time continuity per currency...")
         continuity_issues = {}
-        total_missing = 0
-        total_expected = 0
         filled_dfs = []
+        total_expected_bars = 0
+        total_missing_bars = 0
+
+        # Expected number of bars per weekday (adjust to your dataset/timezone)
 
         for curr in self.df["currency"].unique():
-            df_curr = self.df[self.df["currency"] == curr].sort_values("open_time")
+            df_curr = (
+                self.df[self.df["currency"] == curr].sort_values("open_time").copy()
+            )
+            df_curr["date"] = df_curr["open_time"].dt.date
+            df_curr["day_of_week"] = df_curr["open_time"].dt.day_name()
 
-            # Time differences
-            deltas = df_curr["open_time"].diff().dropna()
-            missing_minutes = (deltas != pd.Timedelta(minutes=1)).sum()
+            # Count actual bars per day
+            bars_per_day = (
+                df_curr.groupby(["date", "day_of_week"])
+                .size()
+                .reset_index(name="bars_count")
+            )
+            # Map expected bars per day
+            bars_per_day["expected_bars"] = bars_per_day["day_of_week"].map(
+                self.DAILY_NUMBER_OF_BARS
+            )
+            bars_per_day["difference"] = (
+                bars_per_day["expected_bars"] - bars_per_day["bars_count"]
+            )
+            bars_per_day["fraction"] = (
+                bars_per_day["bars_count"] / bars_per_day["expected_bars"]
+            )
 
-            # Valid trading times mask
+            # Total missing vs expected
+            total_missing = bars_per_day["difference"].sum()
+            total_expected = bars_per_day["expected_bars"].sum()
+            missing_fraction = (
+                total_missing / total_expected if total_expected > 0 else 0
+            )
+            total_expected_bars += total_expected
+            total_missing_bars += total_missing
+
+            continuity_issues[curr] = (total_missing, missing_fraction)
+
+            # -------------------------------
+            # Forward-fill small gaps within valid trading times
+            # -------------------------------
             valid_mask = ~(
-                (df_curr["open_time"].dt.day_name() == "Saturday")
+                (df_curr["day_of_week"] == "Saturday")
                 | (
-                    (df_curr["open_time"].dt.day_name() == "Sunday")
+                    (df_curr["day_of_week"] == "Sunday")
                     & (df_curr["open_time"].dt.hour < 22)
                 )
                 | (
-                    (df_curr["open_time"].dt.day_name() == "Friday")
+                    (df_curr["day_of_week"] == "Friday")
                     & (df_curr["open_time"].dt.hour >= 22)
                 )
             )
-
-            expected_rows = valid_mask.sum()
-            missing_fraction = (
-                missing_minutes / expected_rows if expected_rows > 0 else 0
-            )
-
-            # Gaps per weekday
-            if missing_minutes > 0:
-                gap_times = df_curr["open_time"][1:][deltas != pd.Timedelta(minutes=1)]
-                gaps_per_weekday = gap_times.dt.day_name().value_counts().to_dict()
-                continuity_issues[curr] = (
-                    missing_minutes,
-                    missing_fraction,
-                    gaps_per_weekday,
-                )
-            else:
-                continuity_issues[curr] = (0, 0.0, {})
-
-            total_missing += missing_minutes
-            total_expected += expected_rows
-
-            # Forward-fill gaps
             start = df_curr.loc[valid_mask, "open_time"].min()
             end = df_curr.loc[valid_mask, "open_time"].max()
             all_times = pd.date_range(start=start, end=end, freq="1min")
+
+            # Filter all_times by valid trading hours
             valid_times_mask = ~(
                 (all_times.day_name() == "Saturday")
                 | ((all_times.day_name() == "Sunday") & (all_times.hour < 22))
@@ -180,36 +222,21 @@ class DataIntegrityChecker:
                 df_curr.reset_index().rename(columns={"index": "open_time"})
             )
 
-        self.df = pd.concat(filled_dfs, ignore_index=True)
-        self.df = self.df[
+        # Combine all currencies
+        self.df = pd.concat(filled_dfs, ignore_index=True)[
             ["open_time", "currency", "open", "high", "low", "close", "volume"]
-        ].copy()
+        ]
 
-        # Print gaps summary
-        if continuity_issues:
-            print("⚠️ Time discontinuities found:")
-            for k, (count, frac, gaps_by_day) in continuity_issues.items():
-                gaps_str = ", ".join(
-                    f"{day}: {cnt}" for day, cnt in gaps_by_day.items()
-                )
-                if gaps_str:
-                    print(
-                        f"   - {k}: {count} gaps ({frac:.2%} missing) | Gaps by weekday: {gaps_str}"
-                    )
-                else:
-                    print(f"   - {k}: {count} gaps ({frac:.2%} missing)")
-        else:
-            print("✅ All currency time series are continuous.")
+        # Print per-currency missing bars
+        print("⚠️ Time discontinuities per currency:")
+        for k, (missing, frac) in continuity_issues.items():
+            print(f"   - {k}: {missing} missing bars ({frac:.2%})")
 
-        overall_missing_fraction = (
-            total_missing / total_expected if total_expected > 0 else 0
-        )
         print(
-            f"\n📊 Overall missing data across all currencies: {overall_missing_fraction:.2%} out of {total_expected:,} 1m time bars."
+            f"\n📊 Total missing bars across all currencies: {total_missing_bars:,} out of {self.df.shape[0]:,} expected ({total_missing_bars / self.df.shape[0]:.2%})."
         )
-        print(
-            f"✅ Small gaps forward-filled (only within valid trading window). Dataset contains {len(self.df):,} 1m time bars."
-        )
+
+        print("✅ Gaps forward-filled within valid trading hours.")
 
     def summary_statistics(self):
         """Return summary statistics per currency."""
@@ -218,7 +245,7 @@ class DataIntegrityChecker:
         ].describe(percentiles=[0.01, 0.1, 0.5, 0.9, 0.99])
         return summary
 
-    def run_all_checks(self):
+    def run_all_checks(self, return_summary: bool = True):
         """Run the full data integrity pipeline."""
         print("🚀 Running data integrity pipeline...\n")
         self.check_columns()
@@ -231,9 +258,14 @@ class DataIntegrityChecker:
         print()
         self.check_date_ranges()
         print()
+        self.clip_last_date()
+        print()
         self.check_weekend_data()
         print()
         self.check_time_continuity()
         summary = self.summary_statistics()
-        print("\n✅ Data integrity checks complete.")
-        return self.df, summary
+        print(
+            f"\n✅ Data integrity checks complete. {f'initial number of rows: {self.initial_n_rows:,}, final number of rows: {self.df.shape[0]:,} ({self.df.shape[0] / self.initial_n_rows:.2%} of all data).' if self.initial_n_rows != self.df.shape[0] else ''}"
+        )
+        if return_summary:
+            return self.df, summary

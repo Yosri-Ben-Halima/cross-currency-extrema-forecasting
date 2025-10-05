@@ -207,7 +207,9 @@ class DataIntegrityChecker:
         print(
             f"\n📊 Overall missing data across all currencies: {overall_missing_fraction:.2%} out of {total_expected:,} 1m time bars."
         )
-        print("✅ Small gaps forward-filled (only within valid trading window).")
+        print(
+            f"✅ Small gaps forward-filled (only within valid trading window). Dataset contains {len(self.df):,} 1m time bars."
+        )
 
     def summary_statistics(self):
         """Return summary statistics per currency."""

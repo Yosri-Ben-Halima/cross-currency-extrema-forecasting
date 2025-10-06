@@ -4,6 +4,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
+def get_open_time_horizon_label(open_time):
+    if open_time.dayofweek == 4 and open_time.hour >= 21:
+        return 60 - open_time.minute - 1
+    else:
+        return 60
+
+
 class CrossCurrencyLabeler:
     """
     Generates primary regression targets (next-hour high/low),
@@ -29,7 +36,7 @@ class CrossCurrencyLabeler:
         "EURAUD": 3,
     }
 
-    def __init__(self, df, horizon=60, vol_window=15):
+    def __init__(self, df: pd.DataFrame, vol_window: int = 15):
         """
         Args:
             df (pd.DataFrame): must contain ['open', 'high', 'low', 'close', 'volume', 'currency']
@@ -39,7 +46,7 @@ class CrossCurrencyLabeler:
             vol_window (int): window for rolling volatility
         """
         self.df = df.copy()
-        self.horizon = horizon
+        self.horizon = 60
         self.vol_window = vol_window
 
     def compute_vertical_barrier_targets(self):
@@ -50,24 +57,32 @@ class CrossCurrencyLabeler:
         y_low_list = []
 
         for curr in self.df["currency"].unique():
-            df_curr = self.df[self.df["currency"] == curr].sort_index()
+            df_curr: pd.DataFrame = self.df[self.df["currency"] == curr].sort_index()
+            df_curr.loc[:, "horizon"] = df_curr["open_time"].apply(
+                get_open_time_horizon_label
+            )
             highs = df_curr["high"].values
             lows = df_curr["low"].values
 
             future_high = pd.Series(
                 [
-                    highs[i + 1 : i + self.horizon + 1].max()
-                    if i + self.horizon < len(highs)
-                    else np.nan
+                    highs[i + 1 : i + int(df_curr["horizon"].iloc[i]) + 1].max()
+                    if len(highs[i + 1 : i + int(df_curr["horizon"].iloc[i]) + 1]) > 0
+                    else highs[i]  # fallback if slice is empty
+                    if i + int(df_curr["horizon"].iloc[i]) < len(highs)
+                    else np.nan  # horizon exceeds available data
                     for i in range(len(highs))
                 ],
                 index=df_curr.index,
             )
+
             future_low = pd.Series(
                 [
-                    lows[i + 1 : i + self.horizon + 1].min()
-                    if i + self.horizon < len(lows)
-                    else np.nan
+                    lows[i + 1 : i + int(df_curr["horizon"].iloc[i]) + 1].min()
+                    if len(lows[i + 1 : i + int(df_curr["horizon"].iloc[i]) + 1]) > 0
+                    else lows[i]  # fallback if slice is empty
+                    if i + int(df_curr["horizon"].iloc[i]) < len(lows)
+                    else np.nan  # horizon exceeds available data
                     for i in range(len(lows))
                 ],
                 index=df_curr.index,

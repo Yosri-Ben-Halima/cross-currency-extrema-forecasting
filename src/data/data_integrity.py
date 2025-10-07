@@ -187,9 +187,7 @@ class DataIntegrityChecker:
 
             continuity_issues[curr] = (total_missing, missing_fraction)
 
-            # -------------------------------
             # Forward-fill small gaps within valid trading times
-            # -------------------------------
             valid_mask = ~(
                 (df_curr["day_of_week"] == "Saturday")
                 | (

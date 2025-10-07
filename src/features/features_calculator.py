@@ -23,6 +23,7 @@ class FeatureCalculator:
         micro_window: int = 15,
         pca_window: int = 15,
         corr_window: int = 15,
+        n_components: int = 3,
     ) -> pd.DataFrame:
         """Compute all features and return final DataFrame."""
 
@@ -52,7 +53,7 @@ class FeatureCalculator:
         # Cross-Currency
         ccf = CrossCurrencyFeatures(self.df)
         self.df = ccf.rolling_pairwise_correlation(window=corr_window)
-        self.df = ccf.pca_factors(window=pca_window, n_components=3)
+        self.df = ccf.pca_factors(window=pca_window, n_components=n_components)
 
         # Time Features
         tf = TimeFeatures(self.df)

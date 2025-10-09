@@ -18,7 +18,7 @@ class MicrostructureFeatures:
         return self.df
 
     def rel_volume(self, window=15):
-        self.df["rel_vol"] = self.df.groupby("currency")["volume"].apply(
+        self.df["rel_vol"] = self.df.groupby("currency")["volume"].transform(
             lambda x: x / (x.rolling(window, min_periods=1).mean() + 1e-8)
         )
         return self.df

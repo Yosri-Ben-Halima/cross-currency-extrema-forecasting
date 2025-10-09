@@ -1,7 +1,7 @@
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.ensemble import HistGradientBoostingRegressor
 
 
 class FeatureSelector:
@@ -18,7 +18,7 @@ class FeatureSelector:
             targets (list, optional): ['y_high', 'y_low', 'meta_label']
             n_pca_components (int, optional): number of PCA components to keep
         """
-        self.df = df.copy()
+        self.df = df.copy().dropna().set_index(["open_time", "currency"])
         self.targets = targets or ["y_high", "y_low", "meta_label"]
         self.feature_cols = feature_cols or [
             c for c in df.columns if c not in self.targets
@@ -56,38 +56,50 @@ class FeatureSelector:
 
         return self.df
 
-    def permutation_importance_selection(self, n_repeats=5, random_state=42):
+    def permutation_importance_selection(
+        self, n_repeats=3, sample_frac=0.5, random_state=42
+    ):
         """
-        Optional: Compute permutation importance per target and select top features.
+        Compute permutation importance using y_mid (=(y_high + y_low)/2),
+        with optional row sampling and fast HistGradientBoosting models.
         """
-        print("🔹 Computing permutation importance across all targets...")
+        print("🔹 Computing permutation importance on y_mid...")
+
+        # --- Compute mid target ---
+        y_mid = (self.df["y_high"] + self.df["y_low"]) / 2
+
+        # --- Prepare feature matrix ---
+        X = self.df[self.selected_features].fillna(0)
+
+        # --- Sample rows to speed up computation ---
+        if sample_frac < 1.0:
+            X_sample = X.sample(frac=sample_frac, random_state=random_state)
+            y_sample = y_mid.loc[X_sample.index]
+        else:
+            X_sample = X
+            y_sample = y_mid
+
+        # --- Choose fast HistGradientBoosting model ---
+        model = HistGradientBoostingRegressor(max_iter=200, random_state=random_state)
+
+        # --- Fit model ---
+        model.fit(X_sample, y_sample)
+
+        # --- Compute permutation importance ---
+        perm_imp = permutation_importance(
+            model,
+            X_sample,
+            y_sample,
+            n_repeats=n_repeats,
+            random_state=random_state,
+            n_jobs=-1,  # use all cores
+        )
+
+        # --- Store results ---
         importances = pd.DataFrame(index=self.selected_features)
-
-        for target in self.targets:
-            if target not in self.df.columns:
-                continue
-
-            y = self.df[target]
-            X = self.df[self.selected_features]
-
-            if target == "meta_label":
-                model = RandomForestClassifier(
-                    n_estimators=200, random_state=random_state
-                )
-            else:
-                model = RandomForestRegressor(
-                    n_estimators=200, random_state=random_state
-                )
-
-            model.fit(X, y)
-            perm_imp = permutation_importance(
-                model, X, y, n_repeats=n_repeats, random_state=random_state
-            )
-            importances[target] = perm_imp.importances_mean
-
-        importances["mean_importance"] = importances.mean(axis=1)
+        importances["importance"] = perm_imp.importances_mean
         self.selected_features = importances[
-            importances["mean_importance"] > 0
+            importances["importance"] > 0
         ].index.tolist()
 
         print(

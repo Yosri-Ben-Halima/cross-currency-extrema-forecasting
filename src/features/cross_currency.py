@@ -12,27 +12,32 @@ class CrossCurrencyFeatures:
 
     def rolling_pairwise_correlation(self, window: int = 15):
         """
-        Compute rolling correlations for all currency pairs.
-        Returns a DataFrame with columns like 'corr_EURUSD_GBPUSD'.
+        Compute rolling correlations for all currency pairs and add them to self.df.
+        Columns will be named like 'corr_EURUSD_GBPUSD'.
         """
         # Pivot to wide format: rows = time, columns = currencies
         df_pivot = self.df.pivot(
             index="open_time", columns="currency", values="log_ret"
         )
-        df_corr = pd.DataFrame(index=df_pivot.index)
 
-        # Compute correlations pairwise
+        # Prepare dict to hold new columns
+        corr_cols = {}
+
+        # Compute pairwise rolling correlations
         for curr1, curr2 in combinations(df_pivot.columns, 2):
-            rolling_corr = (
-                df_pivot[[curr1, curr2]]
-                .rolling(window)
-                .corr()
-                .unstack()
-                .iloc[:, 1]  # select corr(curr1, curr2)
-            )
-            df_corr[f"corr_{curr1}_{curr2}"] = rolling_corr
+            rolling_corr = df_pivot[curr1].rolling(window).corr(df_pivot[curr2])
+            col_name = f"corr_{curr1}_{curr2}"
+            corr_cols[col_name] = rolling_corr
 
-        return df_corr
+        # Combine into a DataFrame
+        df_corr = pd.DataFrame(corr_cols)
+
+        # Merge back into self.df on open_time
+        self.df = self.df.merge(
+            df_corr, left_on="open_time", right_index=True, how="left"
+        )
+
+        return self.df
 
     def pca_factors(self, window: int = 15, n_components: int = 2):
         """Compute rolling PCA factors over all currencies' returns."""

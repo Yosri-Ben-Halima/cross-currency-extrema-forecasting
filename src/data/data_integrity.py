@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from typing import Optional
 
 
 class DataIntegrityChecker:
@@ -18,7 +19,7 @@ class DataIntegrityChecker:
         "Sunday": 120,  # Sunday only after 22:00 UTC
     }
 
-    def __init__(self, df: pd.DataFrame = None):
+    def __init__(self, df: Optional[pd.DataFrame] = None):
         if df is None:
             df = pd.read_parquet("data/raw/currencies_market_data.parquet")
         self.df: pd.DataFrame = df.copy()

@@ -1,5 +1,5 @@
+import numpy as np
 import pandas as pd
-from itertools import combinations
 from sklearn.decomposition import PCA
 
 
@@ -10,32 +10,51 @@ class CrossCurrencyFeatures:
         self.df = df.copy()
         self.currencies = df["currency"].unique()
 
-    def rolling_pairwise_correlation(self, window: int = 15):
+    def rolling_cross_currency_corr(self, window=15):
         """
-        Compute rolling correlations for all currency pairs and add them to self.df.
-        Columns will be named like 'corr_EURUSD_GBPUSD'.
+        Vectorized version: for each row, add a column for each currency in df['currency'].unique().
+        The value in column 'X' is the rolling correlation between 'X' and the row's currency
+        at that timestamp.
         """
-        # Pivot to wide format: rows = time, columns = currencies
-        df_pivot = self.df.pivot(
+        if "log_ret" not in self.df.columns:
+            self.df["log_ret"] = np.log(self.df["close"] / self.df["close"].shift())
+
+        # df = df.copy()
+        self.df["open_time"] = pd.to_datetime(self.df["open_time"])
+        currencies = self.df["currency"].unique()
+        currency_idx = {c: i for i, c in enumerate(currencies)}
+
+        # Pivot log returns to wide format
+        df_pivot: pd.DataFrame = self.df.pivot(
             index="open_time", columns="currency", values="log_ret"
         )
+        pivot_index = df_pivot.index
 
-        # Prepare dict to hold new columns
-        corr_cols = {}
+        # Precompute rolling correlations
+        n_rows = len(df_pivot)
+        n_curr = len(currencies)
+        corr_matrix = np.ones((n_rows, n_curr, n_curr), dtype=np.float32)
 
-        # Compute pairwise rolling correlations
-        for curr1, curr2 in combinations(df_pivot.columns, 2):
-            rolling_corr = df_pivot[curr1].rolling(window).corr(df_pivot[curr2])
-            col_name = f"corr_{curr1}_{curr2}"
-            corr_cols[col_name] = rolling_corr
+        for i, curr1 in enumerate(currencies):
+            for j, curr2 in enumerate(currencies):
+                if i >= j:
+                    continue  # lower triangle + diagonal = 1
+                rolling_corr = (
+                    df_pivot[curr1]
+                    .rolling(window)
+                    .corr(df_pivot[curr2])
+                    .astype(np.float32)
+                )
+                corr_matrix[:, i, j] = rolling_corr.values
+                corr_matrix[:, j, i] = rolling_corr.values  # symmetric
 
-        # Combine into a DataFrame
-        df_corr = pd.DataFrame(corr_cols)
+        # Map each df row to pivot row
+        pivot_pos = self.df["open_time"].map(lambda x: pivot_index.get_loc(x)).values
+        row_currency_idx = self.df["currency"].map(currency_idx).values
 
-        # Merge back into self.df on open_time
-        self.df = self.df.merge(
-            df_corr, left_on="open_time", right_index=True, how="left"
-        )
+        # Build new columns
+        for i, col_curr in enumerate(currencies):
+            self.df[f"corr_{col_curr}"] = corr_matrix[pivot_pos, row_currency_idx, i]
 
         return self.df
 

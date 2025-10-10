@@ -1,4 +1,6 @@
 import pandas as pd
+
+from utils.helpers import downcast_numeric_columns
 from .returns import ReturnFeatures
 from .volatility import VolatilityFeatures
 from .microstructure import MicrostructureFeatures
@@ -27,57 +29,48 @@ class FeatureCalculator:
     ) -> pd.DataFrame:
         """Compute all features and return final DataFrame."""
 
-        self.df = self.downcast_numeric_columns()
+        self.df = downcast_numeric_columns(self.df)
         print("🕒 Starting feature computations...")
 
         # Returns
-        print("📊 Computing return features...")
-        rf = ReturnFeatures(self.df)
-        self.df = rf.log_return()
-        self.df = rf.intraday_cum_return()
-        self.df = rf.vol_adjusted_return(window=return_window)
+        print("📊 Computing return figures...")
+        self.rf = ReturnFeatures(self.df)
+        self.df = self.rf.log_return()
+        self.df = self.rf.intraday_cum_return()
+        self.df = self.rf.vol_adjusted_return(window=return_window)
 
         # Volatility
-        print("📊 Computing volatility features...")
-        vf = VolatilityFeatures(self.df)
-        self.df = vf.realized_vol()
-        self.df = vf.atr(window=vol_window)
+        print("📊 Computing volatility metrics...")
+        self.vf = VolatilityFeatures(self.df)
+        self.df = self.vf.realized_vol()
+        self.df = self.vf.atr(window=vol_window)
 
         # Microstructure
         print("📊 Computing microstructure features...")
-        mf = MicrostructureFeatures(self.df)
-        self.df = mf.high_low_spread()
-        self.df = mf.close_open_return()
-        self.df = mf.rel_volume(window=micro_window)
+        self.mf = MicrostructureFeatures(self.df)
+        self.df = self.mf.high_low_spread()
+        self.df = self.mf.close_open_return()
+        self.df = self.mf.rel_volume(window=micro_window)
 
         # Technicals
-        print("📊 Computing technical features...")
-        ti = TechnicalFeatures(self.df)
-        self.df = ti.rsi()
-        self.df = ti.macd()
-        self.df = ti.moving_averages()
+        print("📊 Computing technical indicators...")
+        self.ti = TechnicalFeatures(self.df)
+        self.df = self.ti.rsi()
+        self.df = self.ti.macd()
+        self.df = self.ti.moving_averages()
 
         # Cross-Currency
-        print("📊 Computing cross-currency features...")
-        ccf = CrossCurrencyFeatures(self.df)
-        self.df = ccf.rolling_pairwise_correlation(window=corr_window)
+        print("📊 Computing cross-currency correlations...")
+        self.ccf = CrossCurrencyFeatures(self.df)
+        self.df = self.ccf.rolling_cross_currency_corr(window=corr_window)
 
-        self.df = self.downcast_numeric_columns()
+        self.df = downcast_numeric_columns(self.df)
 
         # Time Features
         print("📊 Computing time features...")
-        tf = TimeFeatures(self.df)
-        self.df = tf.add_cyclic_features()
+        self.tf = TimeFeatures(self.df)
+        self.df = self.tf.add_cyclic_features()
 
         print("✅ All features computed.\n")
 
         return self.df
-
-    def downcast_numeric_columns(self):
-        return self.df.apply(
-            lambda col: pd.to_numeric(col, downcast="float")
-            if col.dtype.kind == "f"
-            else pd.to_numeric(col, downcast="integer")
-            if col.dtype.kind in "iu"
-            else col
-        )

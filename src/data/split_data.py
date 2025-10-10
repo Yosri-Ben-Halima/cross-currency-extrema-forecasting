@@ -20,7 +20,6 @@ class DatasetSplitter:
         val_size: Optional[float] = 0.15,
         test_size: Optional[float] = 0.14,
         embargo_size: Optional[float] = 0.01,
-        random_state: Optional[int] = 42,
     ):
         total = train_size + val_size + test_size + embargo_size
         assert abs(total - 1.0) < 1e-6, f"Fractions must sum to 1.0, got {total:.4f}"
@@ -28,7 +27,6 @@ class DatasetSplitter:
         self.val_size = val_size
         self.test_size = test_size
         self.embargo_size = embargo_size
-        self.random_state = random_state
 
     def split(
         self,
@@ -70,8 +68,8 @@ class DatasetSplitter:
         test_df = df.iloc[test_start:]
 
         print(
-            f"✅ Split dataset: {len(train_df)} train | {len(val_df)} val | {len(test_df)} test "
-            f"(embargo = {embargo_len} rows, ~{self.embargo_size:.2%})"
+            f"✅ Split dataset: {len(train_df):,} train | {len(val_df):,} val | {len(test_df):,} test "
+            f"(embargo = {embargo_len:,} rows, ~{self.embargo_size:.2%})"
         )
 
         return train_df, val_df, test_df

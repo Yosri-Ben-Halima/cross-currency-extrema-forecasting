@@ -127,7 +127,7 @@ class DataIntegrityChecker:
                 pct = v / self.df[self.df["currency"] == k].shape[0]
                 print(f"   - {k}: {v} entries ({pct:.2%} of data)")
             print(
-                f"\n📊 Total entries dropped: {total_dropped} ({total_dropped / self.df.shape[0]:.2%} of all data)."
+                f"\n📊 Total entries dropped: {total_dropped:,} ({total_dropped / self.df.shape[0]:.2%} of all data)."
             )
 
             drop_mask = (

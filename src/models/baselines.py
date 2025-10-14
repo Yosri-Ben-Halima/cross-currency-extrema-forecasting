@@ -22,15 +22,15 @@ class RuleBasedBenchmark:
         for currency in self.df["currency"].unique():
             df_curr = self.df[self.df["currency"] == currency]
             if self.mode == "naive":
-                self.df.loc[df_curr.index, "y_high_pred"] = df_curr["y_high"].shift(1)
-                self.df.loc[df_curr.index, "y_low_pred"] = df_curr["y_low"].shift(1)
+                self.df.loc[df_curr.index, "y_high_pred"] = df_curr["high"].shift(1)
+                self.df.loc[df_curr.index, "y_low_pred"] = df_curr["low"].shift(1)
             else:
-                vol = df_curr["y_high"].rolling(window=15).std().shift(1)
+                vol = df_curr["close"].rolling(window=15).std().shift(1)
                 self.df.loc[df_curr.index, "y_high_pred"] = (
-                    df_curr["y_high"].shift(1) + self.multiplier * vol
+                    df_curr["high"].shift(1) + self.multiplier * vol
                 )
                 self.df.loc[df_curr.index, "y_low_pred"] = (
-                    df_curr["y_low"].shift(1) - self.multiplier * vol
+                    df_curr["low"].shift(1) - self.multiplier * vol
                 )
 
         self.df[
@@ -46,7 +46,7 @@ class RuleBasedBenchmark:
         ].bfill()
 
         print(
-            f"✅ {self.mode.replace('_', ' ').capitalize} rule-based predictions generated."
+            f"✅ {self.mode.replace('_', ' ').capitalize()} rule-based predictions generated."
         )
 
         return self.df

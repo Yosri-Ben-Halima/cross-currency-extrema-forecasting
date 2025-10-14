@@ -3,7 +3,7 @@ import numpy as np
 
 
 class MicrostructureFeatures:
-    """OHLCV-based microstructure features (HL spread, CO return, relative volume)."""
+    """OHLCV-based microstructure features :High-Low spread, Close-Open return, relative volume."""
 
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()

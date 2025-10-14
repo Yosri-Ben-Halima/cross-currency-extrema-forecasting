@@ -1,10 +1,9 @@
 import numpy as np
 import pandas as pd
-from sklearn.decomposition import PCA
 
 
 class CrossCurrencyFeatures:
-    """Compute rolling correlations and PCA factors across currencies."""
+    """Compute rolling correlations across currencies."""
 
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()
@@ -57,26 +56,3 @@ class CrossCurrencyFeatures:
             self.df[f"corr_{col_curr}"] = corr_matrix[pivot_pos, row_currency_idx, i]
 
         return self.df
-
-    def pca_factors(self, window: int = 15, n_components: int = 2):
-        """Compute rolling PCA factors over all currencies' returns."""
-        df_pivot = self.df.pivot(
-            index="open_time", columns="currency", values="log_ret"
-        )
-        df_pca = pd.DataFrame(
-            index=df_pivot.index, columns=[f"pca_{i + 1}" for i in range(n_components)]
-        )
-
-        for i in range(window, len(df_pivot)):
-            window_data = df_pivot.iloc[i - window : i].dropna(
-                axis=1, how="any"
-            )  # only currencies with data
-            if window_data.shape[1] == 0:
-                continue
-            pca = PCA(n_components=min(n_components, window_data.shape[1]))
-            pca.fit(window_data)
-            df_pca.iloc[i, : pca.n_components_] = pca.transform(window_data.iloc[-1:])[
-                0
-            ]
-
-        return df_pca

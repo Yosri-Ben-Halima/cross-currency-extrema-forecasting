@@ -40,9 +40,7 @@ cross-currency-extrema-forecasting/
 │   ├── 01_data_preprocessing.ipynb
 │   ├── 02_target_construction.ipynb
 │   ├── 03_feature_engineering.ipynb
-│   ├── 04_modeling_baselines.ipynb
-│   ├── 05_deep_learning_models.ipynb
-│   └── 06_evaluation_and_reporting.ipynb
+│   └── 04_modeling_and_benchmarking.ipynb
 │
 ├── src/
 │   ├── __init__.py
@@ -92,16 +90,7 @@ cross-currency-extrema-forecasting/
 1. Clone repo
 2. Install requirements
 3. Download dataset from Kaggle
-4. Run notebooks in order (`01_...` → `06_...`)
-
-## Results Summary
-
-| Model | MAPE (High) | MAPE (Low) | Notes |
-|:--|:--|:--|:--|
-| Baseline (Persistence) | 3.2% | 3.1% | Rule-based |
-| XGBoost | 2.5% | 2.4% | Solid baseline |
-| LSTM (per-ticker) | 2.1% | 2.0% | Improved |
-| Attention (cross-ticker) | **1.8%** | **1.7%** | Best performance |
+4. Run notebooks in order (`01_...` → `04_...`)
 
 ## Author
 

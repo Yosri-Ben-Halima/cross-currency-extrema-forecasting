@@ -1,50 +1,44 @@
-import os
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # force use of GPU 0 only
-
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from typing import List
-from utils.helpers import downcast_numeric_columns
+# from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 
 
 # -------------------------
-# region: Streaming Dataset
+# Sliding Window Dataset
 # -------------------------
 class StreamingSlidingWindowDataset(Dataset):
+    """
+    Streaming sliding window dataset for multiple currencies.
+    Produces seq2one samples: last timestep is target.
+    """
+
     def __init__(
         self,
         df: pd.DataFrame,
         feature_cols: List[str],
         target_cols=["y_high", "y_low"],
-        meta_label_col="meta_label",
         seq_len=60,
         fill_value=0.0,
         currency_order=None,
     ):
-        # --- Prepare dataframe
-        df = downcast_numeric_columns(df.copy())
+        df = df.copy()
         df["open_time"] = pd.to_datetime(df["open_time"])
         df = df.sort_values(["open_time", "currency"]).reset_index(drop=True)
-
-        # --- Save params
         self.df = df
         self.seq_len = seq_len
         self.feature_cols = feature_cols
         self.target_cols = target_cols
-        self.meta_label_col = meta_label_col
         self.fill_value = fill_value
-
-        # --- Currency and time axis
         self.currencies = currency_order or sorted(df["currency"].unique())
         self.n_currencies = len(self.currencies)
         self.times = df["open_time"].sort_values().unique()
         self.T = len(self.times)
 
-        # --- Compute valid start indices
+        # Precompute valid start indices where target is available
         target_mask = (
             df.pivot(index="open_time", columns="currency", values=target_cols[0])
             .reindex(self.times, columns=self.currencies)
@@ -52,7 +46,6 @@ class StreamingSlidingWindowDataset(Dataset):
             .values
         )
         target_mask = (target_mask != 0).astype(np.uint8)
-        # Valid rows that have data after seq_len
         self.starts = np.where(target_mask[seq_len:].any(axis=1))[0]
 
     def __len__(self):
@@ -65,10 +58,9 @@ class StreamingSlidingWindowDataset(Dataset):
 
         df_win = self.df[self.df["open_time"].isin(times_window)].copy()
 
-        # --- Build feature tensor safely
+        # Features
         X_feat = np.zeros(
-            (self.seq_len, len(self.currencies), len(self.feature_cols)),
-            dtype=np.float32,
+            (self.seq_len, self.n_currencies, len(self.feature_cols)), dtype=np.float32
         )
         for f_i, feat in enumerate(self.feature_cols):
             pivot_f = (
@@ -78,12 +70,10 @@ class StreamingSlidingWindowDataset(Dataset):
             )
             X_feat[:, :, f_i] = pivot_f.values
 
-        # --- Targets (next timestamp)
-        if t_target < len(self.times):
-            target_time = self.times[t_target]
-        else:
-            target_time = self.times[-1]
-
+        # Targets: last timestamp in window
+        target_time = (
+            self.times[t_target] if t_target < len(self.times) else self.times[-1]
+        )
         df_target = self.df[self.df["open_time"] == target_time]
 
         y_high = (
@@ -100,198 +90,176 @@ class StreamingSlidingWindowDataset(Dataset):
             .reindex([target_time], columns=self.currencies, fill_value=0)
             .values.astype(np.float32)
         )
-
         Y = np.stack([y_high, y_low], axis=-1)[0]  # (C, 2)
 
-        # --- Meta labels
-        if self.meta_label_col in self.df.columns:
-            y_meta = (
-                df_target.pivot(
-                    index="open_time", columns="currency", values=self.meta_label_col
-                )
-                .reindex([target_time], columns=self.currencies, fill_value=-1)
-                .values.astype(np.int64)[0]
-            )
-        else:
-            y_meta = np.full(len(self.currencies), -1, dtype=np.int64)
-
-        # --- Mask (1 = valid)
         mask = ((Y[..., 0] != 0) & (Y[..., 1] != 0)).astype(np.uint8)
 
         return {
             "X": torch.from_numpy(X_feat),
             "y_reg": torch.from_numpy(Y),
-            "y_meta": torch.from_numpy(y_meta),
             "target_mask": torch.from_numpy(mask),
         }
 
 
 # -------------------------
-# region: Temporal CNN + MLP attention
+# Temporal CNN + MLP attention
 # -------------------------
 class TemporalCNNCrossCurrency(nn.Module):
-    def __init__(
-        self, n_features, hidden_dim=128, kernel_size=3, cls_num_classes=3, dropout=0.1
-    ):
+    def __init__(self, n_features, hidden_dim=128, kernel_size=3, dropout=0.1):
         super().__init__()
-        self.n_features = n_features
-        self.hidden_dim = hidden_dim
-
-        # Temporal CNN per currency (shared)
         self.conv1 = nn.Conv1d(
-            n_features, hidden_dim, kernel_size=kernel_size, padding=kernel_size // 2
+            n_features, hidden_dim, kernel_size, padding=kernel_size // 2
         )
         self.conv2 = nn.Conv1d(
-            hidden_dim, hidden_dim, kernel_size=kernel_size, padding=kernel_size // 2
+            hidden_dim, hidden_dim, kernel_size, padding=kernel_size // 2
         )
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
-
-        # MLP cross-currency attention
         self.attn_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
-
-        # Heads
         self.reg_head = nn.Linear(hidden_dim, 2)
-        self.cls_head = nn.Linear(hidden_dim, cls_num_classes)
 
     def forward(self, X, avail_mask=None):
         """
         X: (batch, seq_len, C, F)
+        Returns: y_reg (batch, C, 2)
         """
         b, seq_len, C, F = X.shape
-        # CNN expects (batch*C, F, seq_len)
         X_reshaped = X.permute(0, 2, 3, 1).reshape(b * C, F, seq_len)  # (b*C, F, seq)
         if avail_mask is not None:
             av = avail_mask.permute(0, 2, 1).reshape(b * C, 1, seq_len)
             X_reshaped = X_reshaped * av
-
         h = self.relu(self.conv1(X_reshaped))
         h = self.dropout(self.relu(self.conv2(h)))
-        # take last timestep
-        emb = h[:, :, -1]  # (b*C, hidden)
-        emb = emb.view(b, C, -1)  # (b,C,hidden)
-
-        # Cross-currency MLP attention
-        attn_out = self.attn_mlp(emb)  # (b,C,hidden)
-        post = self.dropout(attn_out + emb)
-
+        emb = h[:, :, -1].view(b, C, -1)  # (b,C,hidden)
+        attn_out = self.attn_mlp(emb)
+        post = self.dropout(emb + attn_out)
         y_reg = self.reg_head(post)
-        y_cls = self.cls_head(post)
-        return y_reg, y_cls
+        return y_reg
 
 
 # -------------------------
-# Loss helper
+# Loss
 # -------------------------
-def multitask_loss_masked(
-    y_reg_pred, y_reg_true, y_cls_logits, y_cls_true, mask, alpha=1.0
-):
-    device = y_reg_pred.device
-    mask_f = mask.float().to(device)
-    mse = ((y_reg_pred - y_reg_true) ** 2).mean(-1)
-    reg_loss = (mse * mask_f).sum() / (mask_f.sum() + 1e-8)
-
-    valid_pos = (mask_f == 1) & (y_cls_true >= 0)
-    if valid_pos.sum() > 0:
-        logits_flat = y_cls_logits[valid_pos.bool()]
-        labels_flat = y_cls_true[valid_pos.bool()].long().to(device)
-        ce = nn.CrossEntropyLoss()
-        cls_loss = ce(logits_flat, labels_flat)
-    else:
-        cls_loss = torch.tensor(0.0, device=device)
-    loss = 0.5 * reg_loss + alpha * cls_loss
-    return loss, reg_loss.item(), cls_loss.item()
+def masked_mse_loss(y_pred, y_true, mask):
+    mask_f = mask.float().to(y_pred.device)
+    mse = ((y_pred - y_true) ** 2).mean(-1)
+    smape = (2 * abs((y_pred - y_true) / (y_true + y_pred + 1e-8))).mean(-1)
+    loss = (mse * mask_f).sum() / (mask_f.sum() + 1e-8)
+    smape = (smape * mask_f).sum() / (mask_f.sum() + 1e-8)
+    return loss, smape
 
 
 # -------------------------
-# region: Training function
+# Training function
 # -------------------------
 def train_model(
     df,
+    df_val,
     feature_cols,
     seq_len=60,
     batch_size=64,
     epochs=5,
     lr=1e-3,
-    alpha=0.5,
-    # device=None,
+    device=None,
     num_workers=4,
-    grad_accum_steps=1,
 ):
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    print("🔹 Preparing data slides...")
-    dataset = StreamingSlidingWindowDataset(df, feature_cols, seq_len=seq_len)
-    dataloader = DataLoader(
-        dataset,
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+    # -----------------------------
+    # Datasets and loaders
+    # -----------------------------
+    train_dataset = StreamingSlidingWindowDataset(df, feature_cols, seq_len=seq_len)
+    val_dataset = StreamingSlidingWindowDataset(df_val, feature_cols, seq_len=seq_len)
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True,
     )
-    print("✅ Created data slides.")
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
     model = TemporalCNNCrossCurrency(n_features=len(feature_cols)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scaler = torch.amp.GradScaler(device)
-    model.train()
-    print("🔹 Training the model...")
+    scaler = torch.amp.GradScaler()
+
+    print("\n🔹 Training the model...")
+
     for epoch in range(epochs):
-        total_loss, total_reg, total_cls = 0.0, 0.0, 0.0
-        optimizer.zero_grad()
-        print("zabab fel kabab")
-        for i, batch in enumerate(dataloader):
+        model.train()
+        total_loss, total_smape = 0, 0
+
+        for i, batch in enumerate(train_loader):
             print(
-                f"🔹 Epoch {epoch + 1}/{epochs}: Batch {i + 1}/{len(dataloader)}",
+                f"🔹 Epoch {epoch + 1}/{epochs} | Batch {i + 1}/{len(train_loader)}...",
                 end="\r",
             )
             X = batch["X"].to(device)
             y_reg = batch["y_reg"].to(device)
-            y_meta = batch["y_meta"].to(device)
             mask = batch["target_mask"].to(device)
 
-            with torch.amp.autocast(device):
-                y_reg_pred, y_cls_logits = model(X)
-                loss, reg_l, cls_l = multitask_loss_masked(
-                    y_reg_pred, y_reg, y_cls_logits, y_meta, mask, alpha
-                )
+            optimizer.zero_grad(set_to_none=True)
+            with torch.amp.autocast(device_type=device):
+                y_pred = model(X)
+                loss, smape = masked_mse_loss(y_pred, y_reg, mask)
 
-            scaler.scale(loss / grad_accum_steps).backward()
-
-            if (i + 1) % grad_accum_steps == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             total_loss += loss.item()
-            total_reg += reg_l
-            total_cls += cls_l
+            total_smape += smape.item()
 
-        n_batches = len(dataloader)
+        avg_train_loss = total_loss / len(train_loader)
+        avg_train_mape = total_smape / len(train_loader)
+
+        model.eval()
+        val_loss, val_smape = 0, 0
+        with torch.no_grad():
+            for batch in val_loader:
+                X = batch["X"].to(device)
+                y_reg = batch["y_reg"].to(device)
+                mask = batch["target_mask"].to(device)
+
+                with torch.amp.autocast(device_type=device):
+                    y_pred = model(X)
+                    loss, smape = masked_mse_loss(y_pred, y_reg, mask)
+
+                val_loss += loss.item()
+                val_smape += smape.item()
+
+        avg_val_loss = val_loss / len(val_loader)
+        avg_val_mape = val_smape / len(val_loader)
+
         print(
-            f"✅ Epoch {epoch + 1}/{epochs} | Loss {total_loss / n_batches:.3f}"  # | Reg {total_reg / n_batches:.6f} | Cls {total_cls / n_batches:.6f}"
+            f"✅ Epoch {epoch + 1:02}/{epochs:02} | "
+            f"Train Loss: {avg_train_loss:>10.4f}  (MAPE: {avg_train_mape:>6.2%}) | "
+            f"Val Loss:   {avg_val_loss:>10.4f}  (MAPE: {avg_val_mape:>6.2%})"
         )
 
-    return model, dataset
+    return model, train_dataset
 
 
 # -------------------------
-# region: Prediction utility
+# Prediction function
 # -------------------------
-def predict(model, test, feature_cols, seq_len, batch_size=64, device=None):
-    """
-    Generate predictions from a trained model and prepare a DataFrame compatible with Evaluator.
-    """
+def predict(model, df, feature_cols, seq_len=60, batch_size=64, device=None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = StreamingSlidingWindowDataset(
-        test, feature_cols=feature_cols, seq_len=seq_len
-    )
+    dataset = StreamingSlidingWindowDataset(df, feature_cols, seq_len=seq_len)
     dataloader = DataLoader(
         dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True
     )
-
     model.eval()
     rows = []
     with torch.no_grad():
@@ -299,27 +267,25 @@ def predict(model, test, feature_cols, seq_len, batch_size=64, device=None):
             X = batch["X"].to(device)
             y_reg = batch["y_reg"].cpu().numpy()
             mask = batch["target_mask"].cpu().numpy()
-
-            y_reg_pred, _ = model(X)
-            y_reg_pred = y_reg_pred.cpu().numpy()
-
-            # iterate over batch and currencies
+            y_pred = model(X).cpu().numpy()
             for i in range(X.shape[0]):
                 t0_idx = dataset.starts[batch_idx * batch_size + i]
-                t_target_idx = t0_idx + dataset.seq_len
-                open_time = dataset.times[t_target_idx]
+                t_target_idx = t0_idx + seq_len
+                open_time = (
+                    dataset.times[t_target_idx]
+                    if t_target_idx < len(dataset.times)
+                    else dataset.times[-1]
+                )
                 for c_idx, currency in enumerate(dataset.currencies):
-                    if mask[i, c_idx]:  # only include valid targets
+                    if mask[i, c_idx]:
                         rows.append(
                             {
                                 "open_time": open_time,
                                 "currency": currency,
                                 "y_high": y_reg[i, c_idx, 0],
                                 "y_low": y_reg[i, c_idx, 1],
-                                "y_high_pred": y_reg_pred[i, c_idx, 0],
-                                "y_low_pred": y_reg_pred[i, c_idx, 1],
+                                "y_high_pred": y_pred[i, c_idx, 0],
+                                "y_low_pred": y_pred[i, c_idx, 1],
                             }
                         )
-
-    df_preds = pd.DataFrame(rows)
-    return df_preds
+    return pd.DataFrame(rows)

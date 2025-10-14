@@ -23,13 +23,21 @@ class FeatureSelector:
             targets (list, optional): ['y_high', 'y_low', 'meta_label']
             n_pca_components (int, optional): number of PCA components to keep
         """
-        num_cols = df.select_dtypes(include="number").columns
+        num_cols = df.select_dtypes(include=[np.number]).columns
         self.df = df.copy()
-        self.df[num_cols] = self.df[num_cols].fillna(self.df[num_cols].mean())
-        self.df = self.df.dropna().set_index(["open_time", "currency"])
-        self.targets = targets or ["y_high", "y_low", "meta_label"]
+
+        # Fill NaN in numeric columns safely
+        self.df[num_cols] = self.df[num_cols].apply(lambda col: col.fillna(col.mean()))
+
+        # Drop remaining rows with NaN in any target or feature
+        self.df = self.df.dropna(subset=targets + feature_cols).set_index(
+            ["open_time", "currency"]
+        )
+        self.targets = targets or ["y_high", "y_low"]
         self.feature_cols = feature_cols or [
-            c for c in self.df.columns if c not in self.targets
+            c
+            for c in self.df.columns
+            if c not in self.targets + ["open", "high", "low"]
         ]
         self.n_pca_components = n_pca_components or len(self.feature_cols)
         self.pls_model = None
@@ -38,7 +46,7 @@ class FeatureSelector:
     def orthogonalize_features(self):
         """Orthogonalize features using PLSRegression on mid-target."""
         print("🔹 Performing PLS-based orthogonalization...")
-        mid_target = (self.df["y_high"] + self.df["y_low"]) / 2
+        mid_target = (self.df[self.targets[0]] + self.df[self.targets[1]]) / 2
         y = mid_target.values.reshape(-1, 1)
         X = self.df[self.feature_cols].values
 

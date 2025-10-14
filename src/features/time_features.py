@@ -11,7 +11,7 @@ class TimeFeatures:
         """
         self.df = df.copy()
 
-    def add_cyclic_features(self):
+    def compute_all(self):
         """Add sin/cos encoded features for hour, minute, day-of-week."""
         self.df["open_time"] = pd.to_datetime(self.df["open_time"])
 
@@ -22,9 +22,5 @@ class TimeFeatures:
         hours = self.df["open_time"].dt.hour
         self.df["sin_hour"] = np.sin(2 * np.pi * hours / 24)
         self.df["cos_hour"] = np.cos(2 * np.pi * hours / 24)
-
-        dow = self.df["open_time"].dt.dayofweek  # Monday=0
-        self.df["sin_dow"] = np.sin(2 * np.pi * dow / 7)
-        self.df["cos_dow"] = np.cos(2 * np.pi * dow / 7)
 
         return self.df

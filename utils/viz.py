@@ -1,5 +1,46 @@
 import plotly.graph_objects as go
 import plotly.express as px
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_absolute_percentage_error
+
+
+def viz_target(target, test_res: pd.DataFrame):
+    for curr in test_res["currency"].unique():
+        plt.figure(figsize=(12, 6))
+        viz = test_res[test_res["currency"] == curr].tail(1000)[:-1]
+        plt.plot(viz["open_time"], viz[target], label="True")
+        pred = viz[f"{target}_pred"]
+        plt.plot(viz["open_time"], pred, label="Pred")
+        mape = mean_absolute_percentage_error(viz[target], pred)
+
+        plt.title(f"Comparing {target} Predicted vs Actual - {curr} | MAPE: {mape:.2%}")
+        plt.grid()
+        plt.legend()
+        plt.show()
+
+
+def plot_corr_heatmap(df: pd.DataFrame, figsize=(10, 8), annot=True, cmap="coolwarm"):
+    """
+    Plots a heatmap of the correlation matrix of a DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame with numeric columns.
+    figsize : tuple
+        Size of the figure (width, height).
+    annot : bool
+        Whether to annotate the heatmap with correlation values.
+    cmap : str
+        Colormap to use.
+    """
+    corr = df.corr()
+    plt.figure(figsize=figsize)
+    sns.heatmap(corr, annot=annot, fmt=".2f", cmap=cmap, center=0)
+    plt.title("Correlation Heatmap", fontsize=16)
+    plt.show()
 
 
 def plot_candlestick(df, title="Candlestick Chart", width=900, height=500):

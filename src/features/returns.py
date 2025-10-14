@@ -3,7 +3,7 @@ import numpy as np
 
 
 class ReturnFeatures:
-    """Log returns, cumulative intraday returns, vol-adjusted returns."""
+    """Computes return features: log returns, cumulative intraday returns, vol-adjusted returns."""
 
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()
@@ -26,6 +26,7 @@ class ReturnFeatures:
             lambda x: x.rolling(window, min_periods=1).std()
         )
         self.df["vol_adj_ret"] = self.df["log_ret"] / (self.df["rolling_vol"] + 1e-8)
+        self.df.drop(columns="rolling_vol", inplace=True)
         return self.df
 
     def compute_all(self, window=15):

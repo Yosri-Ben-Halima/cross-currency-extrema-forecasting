@@ -27,7 +27,7 @@ class Evaluator:
 
     def evaluate(self) -> pd.DataFrame:
         """
-        Evaluate model performance using MAE, MSE, RMSE, MAPE, and R2 metrics.
+        Evaluate model performance using RMSE and MAPE metrics.
 
         Args:
             average (str, optional): Averaging method for multi-target metrics. Defaults to 'macro'.
@@ -46,7 +46,7 @@ class Evaluator:
                 {
                     "target": target,
                     "RMSE": rmse,
-                    "MAPE": mape,
+                    "MAPE": 100 * mape,
                 }
             )
 
@@ -65,7 +65,6 @@ class Evaluator:
             [results_df, pd.DataFrame([overall_results])], ignore_index=True
         )
 
-        print("✅ Evaluation complete.")
         return results_df
 
     def evaluate_currency(self, currency: str) -> pd.DataFrame:
@@ -102,5 +101,5 @@ class Evaluator:
         overall_results = self.evaluate()
         overall_results["currency"] = "overall"
         all_results_df = pd.concat([all_results_df, overall_results], ignore_index=True)
-
+        print("✅ Evaluation complete.")
         return all_results_df

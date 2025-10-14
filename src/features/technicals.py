@@ -3,7 +3,7 @@ import pandas as pd
 
 
 class TechnicalFeatures:
-    """Compute technical indicators currency-wise: RSI, MACD, MAs."""
+    """Compute technical indicators: RSI, MACD, MAs."""
 
     def __init__(self, df: pd.DataFrame):
         self.df: pd.DataFrame = df.copy()
@@ -40,9 +40,12 @@ class TechnicalFeatures:
             lambda x: _ema(x, signal_window)
         )
         self.df["macd_hist"] = self.df["macd"] - self.df["macd_signal"]
+        self.df.drop(
+            columns=["macd", "ema_long", "ema_short", "macd_signal"], inplace=True
+        )
         return self.df
 
-    def moving_averages(self, windows: List[int] = [10, 20, 50]):
+    def moving_averages(self, windows: List[int] = [60]):
         """Simple moving averages."""
         for w in windows:
             self.df[f"sma_{w}"] = self.df.groupby("currency")["close"].transform(

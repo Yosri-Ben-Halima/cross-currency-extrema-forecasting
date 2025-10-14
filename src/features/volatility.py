@@ -3,7 +3,7 @@ import pandas as pd
 
 
 class VolatilityFeatures:
-    """Compute volatility and risk features currency-wise."""
+    """Compute volatility and risk features."""
 
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()
@@ -11,7 +11,7 @@ class VolatilityFeatures:
     def realized_vol(
         self,
         return_col: str = "log_ret",
-        windows: List[int] = [5, 15, 30],
+        windows: List[int] = [60],
     ):
         """Rolling standard deviation of returns (realized volatility)."""
         for w in windows:
@@ -33,29 +33,12 @@ class VolatilityFeatures:
         ].transform(lambda x: tr.rolling(window, min_periods=1).mean())
         return self.df
 
-    def high_low_range(self):
-        """Simple high-low range."""
-        self.df["hl_range"] = self.df["high"] - self.df["low"]
-        return self.df
-
-    def volatility_regime(self, window: int = 15, threshold: float = 1.0):
-        """Flag high vs low volatility regime based on rolling realized vol."""
-        rv = self.df.groupby("currency")["log_ret"].transform(
-            lambda x: x.rolling(window, min_periods=1).std()
-        )
-        self.df["vol_regime"] = (rv > threshold).astype(int)
-        return self.df
-
     def compute_all(
         self,
-        rv_windows: List[int] = [5, 15, 30],
+        rv_windows: List[int] = [60],
         atr_window: int = 14,
-        vol_reg_window: int = 15,
-        vol_thresh: float = 1.0,
     ):
         """Compute all volatility features in one call."""
         self.realized_vol(windows=rv_windows)
         self.atr(window=atr_window)
-        self.high_low_range()
-        self.volatility_regime(window=vol_reg_window, threshold=vol_thresh)
         return self.df

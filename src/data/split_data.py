@@ -4,15 +4,7 @@ from typing import Optional, Tuple
 
 class DatasetSplitter:
     """
-    Time-aware dataset splitter with De Prado-style embargo.
-    Works per-currency, ensuring no temporal leakage across currencies.
-
-    The embargo is treated as a fraction of the total dataset per currency, such that:
-        train_size + val_size + test_size + embargo_size = 1.0
-
-    Example:
-    >>> splitter = DatasetSplitter(train_size=0.7, val_size=0.15, test_size=0.14, embargo_size=0.01)
-    >>> train_df, val_df, test_df = splitter.split(df, time_col="open_time", currency_col="currency")
+    Time-aware dataset splitter per-currency with embargos.
     """
 
     def __init__(

@@ -19,8 +19,4 @@ class TimeFeatures:
         self.df["sin_minute"] = np.sin(2 * np.pi * minutes / 1440)
         self.df["cos_minute"] = np.cos(2 * np.pi * minutes / 1440)
 
-        hours = self.df["open_time"].dt.hour
-        self.df["sin_hour"] = np.sin(2 * np.pi * hours / 24)
-        self.df["cos_hour"] = np.cos(2 * np.pi * hours / 24)
-
         return self.df

@@ -1,17 +1,14 @@
 # Cross-Currency Extrema Forecasting
 
 This project aims to forecast the **next-hour maximum high** and **minimum low**
-for 15 currency pairs using 1-minute OHLCV data (March–September 2025).
-It explores both single-ticker and cross-ticker deep learning architectures,
-including attention mechanisms for multi-currency dependency modeling.
+for 15 currency pairs using 1-minute OHLCV data.
 
 ## Objectives
 
-- Construct next-hour high/low targets and metalabels.
-- Engineer time-series and cross-currency features.
-- Orthogonalize features and select components based on Max Relevance Min Redundance framework
-- Benchmark rule-based vs ML/DL models.
-- Evaluate robustness across tickers using MAPE and RMSE.
+- Construct next-hour max high/min low targets and metalabels.
+- Engineer features.
+- Stationarize and orthogonalize features and select components based on Max Relevance Min Redundance framework
+- Benchmark rule-based vs XGBoost Regression models and evaluate preformance across tickers using MAPE and RMSE.
 
 ## Repository Structure
 
@@ -22,6 +19,7 @@ cross-currency-extrema-forecasting/
 ├── LICENSE
 ├── .gitignore
 ├── requirements.txt
+│
 ├── data/
 │   ├── raw/
 │   │   └── currencies_market_data.parquet
@@ -61,37 +59,25 @@ cross-currency-extrema-forecasting/
 │   │   └── feature_selector.py
 │   │
 │   ├── models/
-│   │   ├── baselines.py         # rule-based benchmarks
-│   │   ├── ml_models.py         # XGBoost, LGBM, etc.
-│   │   ├── dl_models.py         # LSTM, GRU, CNN, Transformer
-│   │   └── attention_module.py  # cross-ticker attention mechanism
+│   │   ├── baselines.py        
+│   │   ├── ml_models.py         
+│   │   └── dl_models.py         
 │   │
 │   └── evaluation/
-│       ├── metrics.py           # MAPE, RMSE
-│       └── visualization.py     # plots and diagnostics
+│       └── metrics.py
 │
-├── experiments/
-│   ├── config_baseline.yaml
-│   ├── config_dl.yaml
-│   └── results/                 # saved model predictions & metrics
-│
-├── reports/
-│   ├── figures/
-│   └── final_report.md
 │
 └── utils/
     ├── helpers.py
     └── viz.py
-
 ```
 
 ## Getting Started
 
 1. Clone repo
 2. Install requirements
-3. Download dataset from Kaggle
-4. Run notebooks in order (`01_...` → `04_...`)
+3. Run notebooks in order (`01_...` → `04_...`)
 
 ## Author
 
-Yosri Ben Halima — Quantitative Analyst / Data Scientist
+Yosri Ben Halima - Quantitative Analyst / Data Scientist

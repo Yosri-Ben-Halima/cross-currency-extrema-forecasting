@@ -58,19 +58,7 @@ class FeatureCalculator:
         self.df = self.tf.compute_all()
 
         print("📊 Aligning & downsampling to 15mins intervals...")
-        self.df = downsample_df_to_15min(
-            align_dataset(
-                self.df.drop(
-                    columns=[
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                    ]
-                )
-            )
-        )
+        self.df = downsample_df_to_15min(align_dataset(self.df))
 
         print("✅ All features computed.\n")
 

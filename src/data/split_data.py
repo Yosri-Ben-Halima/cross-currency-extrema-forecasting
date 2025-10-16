@@ -4,17 +4,17 @@ from typing import Optional, Tuple
 
 class DatasetSplitter:
     """
-    Time-aware dataset splitter per-currency with embargos.
+    Time-aware dataset splitter per-currency with 2 embargos between train and val and val and test.
     """
 
     def __init__(
         self,
         train_size: Optional[float] = 0.7,
-        val_size: Optional[float] = 0.15,
+        val_size: Optional[float] = 0.14,
         test_size: Optional[float] = 0.14,
         embargo_size: Optional[float] = 0.01,
     ):
-        total = train_size + val_size + test_size + embargo_size
+        total = train_size + val_size + test_size + 2 * embargo_size
         assert abs(total - 1.0) < 1e-6, f"Fractions must sum to 1.0, got {total:.4f}"
         self.train_size = train_size
         self.val_size = val_size
@@ -85,10 +85,6 @@ class DatasetSplitter:
             .reset_index(drop=True)
         )
 
-        # Logging
-        # embargo_example = int(
-        #     self.embargo_size * len(df.groupby(currency_col).__next__()[1])
-        # )
         print(
             f"✅ Split dataset: {len(train_df):,} train | {len(val_df):,} val | {len(test_df):,} test "
             f"(embargo ~{self.embargo_size:.2%} per currency)"

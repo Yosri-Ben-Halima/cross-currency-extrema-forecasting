@@ -154,7 +154,7 @@ class CrossCurrencyLabeler:
 
         self.df["sample_weight"] = pd.concat(weight_list).sort_index()
 
-    def run_labeling_pipeline(self, compute_meta=True, compute_weights=False):
+    def run_labeling_pipeline(self, compute_meta=False, compute_weights=False):
         """
         Run the full labeling pipeline.
         """

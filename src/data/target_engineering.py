@@ -80,9 +80,9 @@ class CrossCurrencyLabeler:
                 [
                     lows[i + 1 : i + int(df_curr["horizon"].iloc[i]) + 1].min()
                     if len(lows[i + 1 : i + int(df_curr["horizon"].iloc[i]) + 1]) > 0
-                    else lows[i]  # fallback if slice is empty
+                    else lows[i]
                     if i + int(df_curr["horizon"].iloc[i]) < len(lows)
-                    else np.nan  # horizon exceeds available data
+                    else np.nan
                     for i in range(len(lows))
                 ],
                 index=df_curr.index,
@@ -102,9 +102,8 @@ class CrossCurrencyLabeler:
             close = df_curr["close"]
             vol = df_curr["close"].rolling(self.vol_window).std()
 
-            # Avoid zero volatility at the beginning
             vol = vol.fillna(vol.mean())
-            k = self.K.get(curr, 1)  # default k=1 if currency not found
+            k = self.K.get(curr, 1)
 
             upper_barrier = close * (1 + k * vol)
             lower_barrier = close * (1 - k * vol)
@@ -117,7 +116,6 @@ class CrossCurrencyLabeler:
                 ub = upper_barrier.iloc[i]
                 lb = lower_barrier.iloc[i]
 
-                # Find first hit
                 hit_up = np.where(future_prices >= ub)[0]
                 hit_down = np.where(future_prices <= lb)[0]
 
@@ -127,11 +125,9 @@ class CrossCurrencyLabeler:
                     len(hit_up) == 0 or hit_down[0] < hit_up[0]
                 ):
                     labels[i] = -1
-                # else: remains 0 (no barrier hit)
 
             meta_labels_list.append(pd.Series(labels, index=df_curr.index))
 
-        # Concatenate per-currency labels properly
         self.df["meta_label"] = pd.concat(meta_labels_list, axis=0)
 
     def compute_sample_weights(self):

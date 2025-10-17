@@ -28,7 +28,6 @@ class DatasetSplitter:
         n = len(df)
         embargo_len = int(self.embargo_size * n)
 
-        # Calculate split indices
         train_end = int(self.train_size * n)
         val_start = train_end + embargo_len
         val_end = val_start + int(self.val_size * n)
@@ -59,7 +58,6 @@ class DatasetSplitter:
         """
         print("🔹 Splitting dataset by currency with embargo...")
 
-        # Split per currency
         train_parts, val_parts, test_parts = [], [], []
 
         for cur, sub_df in df.groupby(currency_col):
@@ -68,7 +66,6 @@ class DatasetSplitter:
             val_parts.append(val_df)
             test_parts.append(test_df)
 
-        # Concatenate all splits
         train_df = (
             pd.concat(train_parts)
             .sort_values(by=[currency_col, time_col])

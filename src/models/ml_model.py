@@ -80,7 +80,6 @@ class XGBoostSeq2One:
         X_train, y_high_train, y_low_train, *_ = train_ds.build()
         X_val, y_high_val, y_low_val, *_ = val_ds.build()
 
-        # scale features
         X_train = self.scaler.fit_transform(X_train)
         X_val = self.scaler.transform(X_val)
 
@@ -161,7 +160,7 @@ class XGBoostSeq2One:
 class XGBoostSeq2OneByCurrency:
     def __init__(self, feature_cols, seq_len=60):
         """
-        Trains a separate XGBoostSeq2One model per currency.
+        Trains a separate `XGBoostSeq2One` model per currency.
 
         Parameters
         ----------
@@ -181,9 +180,9 @@ class XGBoostSeq2OneByCurrency:
         Parameters
         ----------
         train_df : pd.DataFrame
-            Training set containing 'currency' column.
+            Training set.
         val_df : pd.DataFrame
-            Validation set containing 'currency' column.
+            Validation set.
         """
         currencies = train_df["currency"].unique()
 
@@ -213,7 +212,7 @@ class XGBoostSeq2OneByCurrency:
             Full dataset used to retrieve first target values for
             reconstructing sequences since `y_(high/low) = y_(high/low)_0 + cumsum(D_y_(high/low))`.
         test_df : pd.DataFrame
-            Test set containing 'currency' column.
+            Test set.
 
         Returns
         -------

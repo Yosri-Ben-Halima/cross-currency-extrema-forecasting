@@ -9,7 +9,6 @@ class ReturnFeatures:
         self.df = df.copy()
 
     def log_return(self):
-        # currency-wise log returns
         self.df["log_ret"] = self.df.groupby("currency")["close"].transform(
             lambda x: np.log(x / x.shift())
         )

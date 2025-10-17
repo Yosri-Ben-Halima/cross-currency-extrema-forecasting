@@ -27,7 +27,6 @@ class VolatilityFeatures:
         low_close = (self.df["low"] - self.df["close"].shift()).abs()
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
 
-        # ATR computed currency-wise
         self.df["atr"] = self.df.groupby("currency")[
             tr.name if tr.name else "close"
         ].transform(lambda x: tr.rolling(window, min_periods=1).mean())
